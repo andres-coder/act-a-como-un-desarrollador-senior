@@ -6,3 +6,5 @@ build/
 .cache/
 *.log
 .env
+db.sqlite3
+backup/
