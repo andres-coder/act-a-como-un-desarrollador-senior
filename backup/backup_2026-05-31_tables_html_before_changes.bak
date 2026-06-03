@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}Mesas | Bemba{% endblock %}
+{% block heading %}Gestión de mesas{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="panel-title">Mapa de mesas</div>
+  <p>Visualiza el estado de cada mesa con una presentación clara, ordenada y con la paleta Bemba.</p>
+</section>
+
+<section class="table-map">
+  {% for table in tables %}
+  <article class="table-card {{ table.status }}">
+    <span class="table-card__tag">{{ table.zone.name }}</span>
+    <strong>Mesa {{ table.number }}</strong>
+    <small>{{ table.seats }} puestos · {{ table.get_status_display }}</small>
+  </article>
+  {% empty %}
+  <p class="empty-state">No hay mesas creadas.</p>
+  {% endfor %}
+</section>
+{% endblock %}

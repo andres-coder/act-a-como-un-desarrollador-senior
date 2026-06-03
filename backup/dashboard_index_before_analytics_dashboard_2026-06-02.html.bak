@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard | Bemba{% endblock %}
+{% block heading %}Dashboard administrativo{% endblock %}
+{% block content %}
+<section class="dashboard-intro panel">
+  <div class="panel-title">Bienvenido a Bemba POS</div>
+  <p>Monitorea las métricas clave del restaurante, controla el flujo de órdenes y gestiona mesas e inventario con una experiencia visual uniforme y moderna.</p>
+</section>
+
+<section class="insights-panel">
+  <article class="insight-card">
+    <span class="insight-label">Meta diaria</span>
+    <strong>${{ sales_today }}</strong>
+    <small>Ventas del día para conocer el ritmo del servicio.</small>
+  </article>
+  <article class="insight-card">
+    <span class="insight-label">Mesas en uso</span>
+    <strong>{{ occupied_tables }}</strong>
+    <small>Indica la ocupación actual del salón.</small>
+  </article>
+</section>
+
+<section class="metric-grid">
+  <article class="metric"><span>Ventas</span><strong>${{ sales_today }}</strong></article>
+  <article class="metric"><span>Pedidos abiertos</span><strong>{{ open_orders }}</strong></article>
+  <article class="metric"><span>Mesas ocupadas</span><strong>{{ occupied_tables }}</strong></article>
+  <article class="metric"><span>Stock crítico</span><strong>{{ low_stock }}</strong></article>
+</section>
+
+{% if request.user.is_superuser or request.user.role == 'admin' or request.user.role == 'manager' %}
+<section class="panel mb-3 alert alert-info py-3">
+  <div class="d-flex justify-content-between align-items-center">
+    <div>
+      <strong>Inventario automático</strong>
+      <p class="mb-0">Los ingredientes se descuentan automáticamente cuando se registra el pago de un pedido. Revisa el inventario y las alertas desde aquí.</p>
+    </div>
+    <a href="{% url 'inventory' %}" class="btn btn-primary">Ir a Inventario</a>
+  </div>
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-title">Pedidos recientes</div>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead><tr><th>Pedido</th><th>Mesa</th><th>Mesero</th><th>Estado</th><th>Total</th></tr></thead>
+      <tbody>
+        {% for order in recent_orders %}
+        <tr><td>#{{ order.id }}</td><td>{{ order.table.number }}</td><td>{{ order.waiter }}</td><td><span class="badge rounded-pill bg-secondary text-white">{{ order.get_status_display }}</span></td><td>${{ order.total }}</td></tr>
+        {% empty %}
+        <tr><td colspan="5">Sin pedidos registrados.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

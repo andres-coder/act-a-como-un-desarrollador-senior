@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Cocina | Bemba{% endblock %}
+{% block heading %}Cocina y comandas{% endblock %}
+{% block content %}
+<section class="kitchen-page">
+  <div class="kitchen-summary">
+    <article class="summary-chip">
+      <span>Comandas activas</span>
+      <strong>{{ tickets|length }}</strong>
+    </article>
+  </div>
+
+  <div class="kitchen-grid">
+    {% for ticket in tickets %}
+    <article class="ticket-card ticket-card--{{ ticket.order.status }}">
+      <div class="ticket-card__header">
+        <div>
+          <strong>Pedido #{{ ticket.order.id }}</strong>
+          <span class="ticket-card__meta">Mesa {{ ticket.order.table.number }}</span>
+        </div>
+        <span class="status-pill status-pill--{{ ticket.order.status }}">{{ ticket.order.get_status_display }}</span>
+      </div>
+
+      <div class="ticket-card__items">
+        {% for item in ticket.order.items.all %}
+        <div class="ticket-item">
+          <span class="item-qty">{{ item.quantity }}</span>
+          <div class="item-details">
+            <strong>{{ item.menu_item.name }}</strong>
+            {% if item.notes %}<small>{{ item.notes }}</small>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="ticket-card__footer">
+        <a class="btn btn-sm btn-outline-dark" href="{% url 'checkout' ticket.order.id %}">Cobrar pedido</a>
+      </div>
+    </article>
+    {% empty %}
+    <p class="empty-state">No hay comandas pendientes.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
