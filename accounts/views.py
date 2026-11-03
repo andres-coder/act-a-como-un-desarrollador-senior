@@ -19,17 +19,43 @@ class BembaLogoutView(LogoutView):
 
 @login_required
 def staff_list(request):
-    """Listar empleados del restaurante del usuario"""
+
     if not request.user.has_role('admin', 'manager'):
-        return render(request, 'error.html', {'message': 'No tienes permiso para acceder aquí.'}, status=403)
-    
-    users = scoped_queryset(User.objects.all(), request.user).exclude(is_superuser=True).select_related('branch')
-    
+        return render(
+            request,
+            'error.html',
+            {'message': 'No tienes permiso para acceder aquí.'},
+            status=403
+        )
+
+    users = User.objects.exclude(is_superuser=True)
+
+    # SUPERUSER
+    if request.user.is_superuser:
+        pass
+
+    # ADMIN → solo restaurante
+    elif request.user.role == 'admin':
+        users = users.filter(
+            restaurant=request.user.restaurant
+        )
+
+    # MANAGER → solo sucursal
+    elif request.user.role == 'manager':
+        users = users.filter(
+            branch=request.user.branch
+        )
+
     context = {
-        'users': users,
+        'users': users.select_related('branch', 'restaurant'),
         'roles': User.Role.choices,
     }
-    return render(request, 'accounts/staff_list.html', context)
+
+    return render(
+        request,
+        'accounts/staff_list.html',
+        context
+    )
 
 
 @login_required

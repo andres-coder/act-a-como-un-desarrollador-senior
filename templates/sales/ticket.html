@@ -1,24 +1,193 @@
 {% extends 'base.html' %}
-{% block title %}Ticket #{{ order.id }} | Bemba{% endblock %}
-{% block heading %}Ticket de venta{% endblock %}
+{% load static %}
+
+{% block title %}Factura #{{ order.id }} | Bemba POS{% endblock %}
+{% block heading %}Factura electrónica{% endblock %}
+
 {% block content %}
-<section class="receipt">
-  <h2>Bemba POS</h2>
-  <p>Pedido #{{ order.id }} - Mesa {{ order.table.number }}</p>
-  {% if order.payment %}
-  <p>Pago: {{ order.payment.get_method_display }} - Cajero: {{ order.payment.cashier }}</p>
-  {% endif %}
-  {% for item in order.items.all %}
-  <div class="receipt-row"><span>{{ item.quantity }} x {{ item.menu_item.name }}</span><strong>${{ item.line_subtotal }}</strong></div>
-  {% endfor %}
-  <hr>
-  <div class="receipt-row"><span>Subtotal</span><strong>${{ order.subtotal }}</strong></div>
-  <div class="receipt-row"><span>Impuestos</span><strong>${{ order.tax }}</strong></div>
-  <div class="receipt-row total"><span>Total</span><strong>${{ order.total }}</strong></div>
-  {% if order.payment %}
-  <div class="receipt-row"><span>Recibido</span><strong>${{ order.payment.received }}</strong></div>
-  <div class="receipt-row"><span>Cambio</span><strong>${{ order.payment.change }}</strong></div>
-  {% endif %}
-  <button class="btn btn-outline-dark mt-3" onclick="window.print()">Imprimir</button>
+
+<section class="invoice-wrapper">
+
+    <div class="invoice-card">
+
+        <!-- HEADER -->
+        <div class="invoice-header">
+
+            <div class="invoice-brand">
+
+                {% if order.restaurant.logo %}
+                    <img
+                        src="{{ order.restaurant.logo.url }}"
+                        class="invoice-logo"
+                        alt="Logo"
+                    >
+                {% endif %}
+
+                <div>
+                    <h1>{{ order.restaurant.business_name }}</h1>
+
+                    {% if order.restaurant.tax_id %}
+                    <p>
+                        <strong>NIT:</strong>
+                        {{ order.restaurant.tax_id }}
+                    </p>
+                    {% endif %}
+
+                    {% if order.branch.address %}
+                    <p>{{ order.branch.address }}</p>
+                    {% endif %}
+
+                    {% if order.restaurant.phone %}
+                    <p>{{ order.restaurant.phone }}</p>
+                    {% endif %}
+
+                    {% if order.restaurant.email %}
+                    <p>{{ order.restaurant.email }}</p>
+                    {% endif %}
+                </div>
+
+            </div>
+
+            <div class="invoice-meta">
+
+                <span class="invoice-badge">
+                    FACTURA
+                </span>
+
+                <h2>#{{ order.id }}</h2>
+
+                <p>
+                    {{ order.created_at|date:"d/m/Y" }}
+                </p>
+
+                <small>
+                    {{ order.created_at|date:"H:i" }}
+                </small>
+
+            </div>
+
+        </div>
+
+        <!-- INFO -->
+        <div class="invoice-info">
+
+            <div>
+                <span>Mesa</span>
+                <strong>{{ order.table.number }}</strong>
+            </div>
+
+            <div>
+                <span>Cajero</span>
+                <strong>{{ order.payment.cashier }}</strong>
+            </div>
+
+            <div>
+                <span>Método</span>
+                <strong>{{ order.payment.get_method_display }}</strong>
+            </div>
+
+        </div>
+
+        <!-- TABLE -->
+        <table class="invoice-table">
+
+            <thead>
+                <tr>
+                    <th>Producto</th>
+                    <th>Cantidad</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for item in order.items.all %}
+                <tr>
+                    <td>{{ item.menu_item.name }}</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>${{ item.line_subtotal }}</td>
+                </tr>
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+        <!-- TOTALS -->
+        <div class="invoice-totals">
+
+            <div class="invoice-total-row">
+                <span>Subtotal</span>
+                <strong>${{ order.subtotal }}</strong>
+            </div>
+
+            <div class="invoice-total-row">
+                <span>Impuestos</span>
+                <strong>${{ order.tax }}</strong>
+            </div>
+
+            <div class="invoice-total-row grand-total">
+                <span>Total</span>
+                <strong>${{ order.total }}</strong>
+            </div>
+
+            {% if order.payment %}
+            <div class="invoice-total-row">
+                <span>Recibido</span>
+                <strong>${{ order.payment.received }}</strong>
+            </div>
+
+            <div class="invoice-total-row">
+                <span>Cambio</span>
+                <strong>${{ order.payment.change }}</strong>
+            </div>
+            {% endif %}
+
+        </div>
+
+        <!-- FOOTER -->
+        <div class="invoice-footer">
+
+            <div class="invoice-qr">
+
+                <img
+                    src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=Factura-{{ order.id }}"
+                    alt="QR"
+                >
+
+            </div>
+
+            <div class="invoice-footer-info">
+
+                <h4>
+                    Gracias por tu compra
+                </h4>
+
+                <p>
+                    Sistema desarrollado con Bemba POS
+                </p>
+
+                <small>
+                    © 2026 Bemba POS
+                </small>
+
+            </div>
+
+        </div>
+
+        <div class="invoice-actions">
+
+            <button
+                onclick="window.print()"
+                class="btn btn-dark"
+            >
+                Imprimir factura
+            </button>
+
+        </div>
+
+    </div>
+
 </section>
+
 {% endblock %}

@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Cocina | Bemba{% endblock %}
 {% block heading %}Cocina y comandas{% endblock %}
+
 {% block content %}
 <section class="kitchen-page">
   <div class="kitchen-summary">
@@ -11,11 +12,11 @@
   </div>
 
   <div class="kitchen-filters">
-    <button class="filter-pill active" data-filter="all">Todas</button>
-    <button class="filter-pill" data-filter="sent">En cocina</button>
-    <button class="filter-pill" data-filter="preparing">Preparando</button>
-    <button class="filter-pill" data-filter="ready">Listas</button>
-    <button class="filter-pill" data-filter="paid">Pagadas</button>
+    <button class="filter-pill active" data-filter="all" type="button">Todas</button>
+    <button class="filter-pill" data-filter="sent" type="button">En cocina</button>
+    <button class="filter-pill" data-filter="preparing" type="button">Preparando</button>
+    <button class="filter-pill" data-filter="ready" type="button">Listas</button>
+    <button class="filter-pill" data-filter="paid" type="button">Pagadas</button>
   </div>
 
   <div class="kitchen-grid">
@@ -43,11 +44,26 @@
 
       <div class="ticket-actions">
         {% if ticket.order.status == 'sent' %}
-        <button type="button" class="btn ticket-action-btn" data-order-id="{{ ticket.order.id }}" data-status="preparing">Marcar preparando</button>
+        <button
+          type="button"
+          class="btn ticket-action-btn"
+          data-status="preparing"
+          data-status-url="{% url 'kitchen_update_status' ticket.order.id %}">
+          Marcar preparando
+        </button>
+
         {% elif ticket.order.status == 'preparing' %}
-        <button type="button" class="btn ticket-action-btn" data-order-id="{{ ticket.order.id }}" data-status="ready">Marcar listo</button>
+        <button
+          type="button"
+          class="btn ticket-action-btn"
+          data-status="ready"
+          data-status-url="{% url 'kitchen_update_status' ticket.order.id %}">
+          Marcar listo
+        </button>
+
         {% elif ticket.order.status == 'ready' %}
         <a class="btn ticket-action-btn" href="{% url 'checkout' ticket.order.id %}">Cobrar pedido</a>
+
         {% elif ticket.order.status == 'paid' %}
         <span class="badge bg-success">Pagado</span>
         {% endif %}
@@ -58,4 +74,69 @@
     {% endfor %}
   </div>
 </section>
+
+<script>
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  }
+
+  document.querySelectorAll('.ticket-action-btn[data-status-url]').forEach(button => {
+    button.addEventListener('click', async () => {
+      const url = button.dataset.statusUrl;
+      const status = button.dataset.status;
+      const csrfToken = getCookie('csrftoken');
+
+      button.disabled = true;
+
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrfToken,
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: new URLSearchParams({ status })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || 'No se pudo actualizar el pedido.');
+        }
+
+        window.location.reload();
+      } catch (error) {
+        alert(error.message);
+        button.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('.filter-pill').forEach(button => {
+    button.addEventListener('click', () => {
+      const filter = button.dataset.filter;
+
+      document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
+      button.classList.add('active');
+
+      document.querySelectorAll('.ticket-card').forEach(card => {
+        const status = card.dataset.status;
+        const show = filter === 'all' || status === filter;
+        card.style.display = show ? '' : 'none';
+      });
+    });
+  });
+</script>
 {% endblock %}
