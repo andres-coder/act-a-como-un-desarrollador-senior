@@ -1,4 +1,5 @@
 from rest_framework import serializers, viewsets
+from django.db import transaction
 
 from accounts.permissions import IsAdminOrManager
 from inventory.models import (
@@ -15,6 +16,7 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = '__all__'
+        read_only_fields = ['restaurant']
 
 
 class IngredientSerializer(serializers.ModelSerializer):
@@ -23,6 +25,7 @@ class IngredientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ingredient
         fields = '__all__'
+        read_only_fields = ['restaurant']
 
 
 class RecipeItemSerializer(serializers.ModelSerializer):
@@ -39,6 +42,16 @@ class RecipeItemSerializer(serializers.ModelSerializer):
             'ingredient_name',
             'quantity'
         ]
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        category = attrs.get('category', getattr(self.instance, 'category', None))
+        if not user.is_superuser and category.restaurant_id != user.restaurant_id:
+            raise serializers.ValidationError({'category': 'La categoría debe pertenecer a tu restaurante.'})
+        for row in attrs.get('recipe', []):
+            if not user.is_superuser and row['ingredient'].restaurant_id != user.restaurant_id:
+                raise serializers.ValidationError({'recipe': 'Los ingredientes deben pertenecer a tu restaurante.'})
+        return attrs
 
 
 class MenuItemSerializer(serializers.ModelSerializer):
@@ -126,6 +139,22 @@ class StockMovementSerializer(serializers.ModelSerializer):
             'restaurant'
         ]
 
+    def validate(self, attrs):
+        user = self.context['request'].user
+        ingredient = attrs.get('ingredient', getattr(self.instance, 'ingredient', None))
+        movement_type = attrs.get('movement_type', getattr(self.instance, 'movement_type', None))
+        quantity = attrs.get('quantity', getattr(self.instance, 'quantity', None))
+        if not user.is_superuser and ingredient.restaurant_id != user.restaurant_id:
+            raise serializers.ValidationError({'ingredient': 'El ingrediente no pertenece a tu restaurante.'})
+        if movement_type == StockMovement.Type.SALE:
+            raise serializers.ValidationError({'movement_type': 'Las salidas por venta se generan al registrar el pago.'})
+        if quantity is not None and quantity <= 0:
+            raise serializers.ValidationError({'quantity': 'La cantidad debe ser mayor que cero.'})
+        if movement_type == StockMovement.Type.OUT and ingredient.current_stock < quantity:
+            raise serializers.ValidationError({'quantity': 'No hay existencias suficientes para esta salida.'})
+        return attrs
+
+    @transaction.atomic
     def create(self, validated_data):
         user = self.context['request'].user
 
@@ -206,6 +235,8 @@ class MenuItemViewSet(viewsets.ModelViewSet):
 
 
 class StockMovementViewSet(viewsets.ModelViewSet):
+
+    http_method_names = ['get', 'post', 'head', 'options']
     queryset = StockMovement.objects.select_related(
         'ingredient',
         'created_by'

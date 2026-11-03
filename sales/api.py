@@ -1,9 +1,11 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from accounts.permissions import IsPOSStaff
+from accounts.permissions import IsOrderOperator, IsPOSStaff
 from kitchen.models import KitchenTicket
 from restaurant.models import DiningTable
 from sales.models import Order, OrderItem, Payment
@@ -70,6 +72,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
         read_only_fields = [
             'waiter',
+            'status',
             'subtotal',
             'tax',
             'total',
@@ -87,57 +90,52 @@ class OrderSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-
-        print("\n========== VALIDANDO PEDIDO ==========")
-
         items = attrs.get('items', [])
+        request = self.context['request']
+        user = request.user
+        if not user.is_superuser and user.role not in ['admin', 'manager', 'waiter']:
+            raise serializers.ValidationError('Solo propietario, gerencia o mesero puede modificar pedidos.')
+        table = attrs.get('table') or getattr(self.instance, 'table', None)
+        table_branch = getattr(getattr(table, 'zone', None), 'branch', None)
+        table_restaurant = getattr(table_branch, 'restaurant', None)
 
+        if not table or not table_branch or not table_restaurant:
+            raise serializers.ValidationError({'table': 'La mesa debe pertenecer a una sucursal válida.'})
+        if not user.is_superuser:
+            if not user.restaurant_id or user.restaurant_id != table_restaurant.id:
+                raise serializers.ValidationError({'table': 'La mesa no pertenece a tu restaurante.'})
+            if user.role in ['manager', 'cashier', 'waiter'] and (
+                not user.branch_id or user.branch_id != table_branch.id
+            ):
+                raise serializers.ValidationError({'table': 'La mesa no pertenece a tu sucursal.'})
         shortages = []
 
         for row in items:
-
             menu_item = row.get('menu_item')
             qty = row.get('quantity', 0)
-
-            print(f"Producto: {menu_item}")
-            print(f"Cantidad: {qty}")
-
             if not menu_item:
-                print("NO HAY MENU ITEM")
                 continue
-
-            if hasattr(menu_item, 'recipe'):
-
-                for recipe_item in menu_item.recipe.all():
-
-                    ingredient = recipe_item.ingredient
-                    required = recipe_item.quantity * qty
-
-                    print(f"Ingrediente: {ingredient.name}")
-                    print(f"Stock actual: {ingredient.current_stock}")
-                    print(f"Necesario: {required}")
-
-                    if ingredient.current_stock < required:
-
-                        shortages.append(
-                            f"{ingredient.name}: requiere "
-                            f"{required} {ingredient.unit}, "
-                            f"disponible {ingredient.current_stock}"
-                        )
+            if not menu_item.is_available:
+                raise serializers.ValidationError({'items': ['El producto no está disponible.']})
+            if table_restaurant and menu_item.restaurant_id != table_restaurant.id:
+                raise serializers.ValidationError(
+                    {'items': ['Los productos deben pertenecer al restaurante de la mesa.']}
+                )
+            for recipe_item in menu_item.recipe.all():
+                ingredient = recipe_item.ingredient
+                required = recipe_item.quantity * qty
+                if ingredient.current_stock < required:
+                    shortages.append(
+                        f"{ingredient.name}: requiere {required} {ingredient.unit}, "
+                        f"disponible {ingredient.current_stock}"
+                    )
 
         if shortages:
-
-            print("FALTANTES:")
-            print(shortages)
-
-            raise serializers.ValidationError({
-                'items': shortages
-            })
-
-        print("VALIDACIÓN OK")
+            raise serializers.ValidationError({'items': shortages})
 
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
 
         items_data = validated_data.pop('items')
@@ -182,15 +180,19 @@ class OrderSerializer(serializers.ModelSerializer):
 
         return order
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+
+        instance = Order.objects.select_for_update().get(pk=instance.pk)
+
+        if instance.status in [Order.Status.PAID, Order.Status.CANCELLED]:
+            raise serializers.ValidationError('No se puede modificar un pedido cerrado.')
 
         items_data = validated_data.pop('items', None)
 
         new_table = validated_data.pop('table', None)
 
         old_table = instance.table
-
-        old_status = instance.status
 
         if new_table and new_table != old_table:
 
@@ -233,16 +235,6 @@ class OrderSerializer(serializers.ModelSerializer):
 
         instance.save()
 
-        # Consumir inventario
-        if (
-            instance.status == Order.Status.PREPARING
-            and old_status != Order.Status.PREPARING
-        ):
-            try:
-                instance.consume_inventory()
-            except Exception as e:
-                print("ERROR INVENTARIO:", str(e))
-
         if items_data is not None:
 
             instance.items.all().delete()
@@ -275,38 +267,88 @@ class PaymentSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'cashier',
             'change',
-            'created_at'
+            'created_at',
+            'restaurant',
+            'branch',
         ]
 
     def validate(self, attrs):
-
         order = attrs['order']
+        user = self.context['request'].user
 
-        if hasattr(order, 'payment'):
+        if Payment.objects.filter(order=order).exists():
             raise serializers.ValidationError(
                 'Este pedido ya tiene un pago registrado.'
             )
 
-        if order.status == Order.Status.CANCELLED:
+        if order.status in [Order.Status.PAID, Order.Status.CANCELLED]:
             raise serializers.ValidationError(
-                'No se puede cobrar un pedido cancelado.'
+                'No se puede cobrar un pedido cerrado o cancelado.'
             )
+
+        if not user.has_role('admin', 'manager', 'cashier'):
+            raise serializers.ValidationError('Solo caja, gerencia o administración puede registrar pagos.')
+
+        if not user.is_superuser and (
+            not user.restaurant_id or order.restaurant_id != user.restaurant_id
+        ):
+            raise serializers.ValidationError('El pedido no pertenece a tu restaurante.')
+
+        if user.role in ['manager', 'cashier'] and (
+            not user.branch_id or order.branch_id != user.branch_id
+        ):
+            raise serializers.ValidationError('El pedido no pertenece a tu sucursal.')
+
+        if order.status not in [Order.Status.READY, Order.Status.SERVED]:
+            raise serializers.ValidationError(
+                {'order': 'Solo se pueden cobrar pedidos listos o servidos.'}
+            )
+
+        if attrs['amount'] != order.total:
+            raise serializers.ValidationError({'amount': 'El pago debe coincidir con el total del pedido.'})
 
         if attrs['amount'] <= 0:
             raise serializers.ValidationError(
                 'El valor a pagar debe ser mayor que cero.'
             )
 
+        if attrs['method'] == Payment.Method.CASH and attrs.get('received', 0) < attrs['amount']:
+            raise serializers.ValidationError({'received': 'El efectivo recibido no cubre el total del pedido.'})
+
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
-
+        order = Order.objects.select_for_update().select_related('table').get(pk=validated_data['order'].pk)
+        if Payment.objects.filter(order=order).exists():
+            raise serializers.ValidationError('Este pedido ya tiene un pago registrado.')
+        if order.status not in [Order.Status.READY, Order.Status.SERVED]:
+            raise serializers.ValidationError({'order': 'El pedido ya no está listo para cobrar.'})
+        if validated_data['amount'] != order.total:
+            raise serializers.ValidationError({'amount': 'El total del pedido cambió; vuelve a cargar el cobro.'})
+        user = self.context['request'].user
+        if not user.is_superuser and (
+            not user.restaurant_id or user.restaurant_id != order.restaurant_id
+        ):
+            raise serializers.ValidationError('El pedido no pertenece a tu restaurante.')
+        if user.role in ['manager', 'cashier'] and (
+            not user.branch_id or user.branch_id != order.branch_id
+        ):
+            raise serializers.ValidationError('El pedido no pertenece a tu sucursal.')
         payment = Payment.objects.create(
-            cashier=self.context['request'].user,
-            **validated_data
+            cashier=user,
+            order=order,
+            restaurant=order.restaurant,
+            branch=order.branch,
+            method=validated_data['method'],
+            amount=validated_data['amount'],
+            received=validated_data.get('received', 0),
+            reference=validated_data.get('reference', ''),
         )
-
-        order = payment.order
+        try:
+            order.consume_inventory()
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({'order': error.messages}) from error
 
         order.status = Order.Status.PAID
         order.closed_at = timezone.now()
@@ -316,6 +358,8 @@ class PaymentSerializer(serializers.ModelSerializer):
         order.table.status = DiningTable.Status.CLEANING
 
         order.table.save(update_fields=['status'])
+
+        KitchenTicket.objects.filter(order=order).update(status=KitchenTicket.Status.DELIVERED)
 
         return payment
 
@@ -331,6 +375,11 @@ class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
 
     permission_classes = [IsPOSStaff]
+
+    def get_permissions(self):
+        if self.action in {'create', 'update', 'partial_update', 'destroy', 'send_to_kitchen'}:
+            return [IsOrderOperator()]
+        return super().get_permissions()
 
     def get_queryset(self):
 
@@ -362,16 +411,21 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         # CASHIER
         if user.role == 'cashier':
-            return qs.filter(
-                payment__cashier=user
-            ).distinct()
+            return qs.filter(branch=user.branch)
 
         return qs.none()
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def send_to_kitchen(self, request, pk=None):
 
+        if not request.user.is_superuser and request.user.role not in ['admin', 'manager', 'waiter']:
+            return Response({'detail': 'Solo propietario, gerencia o mesero puede enviar pedidos a cocina.'}, status=403)
+
         order = self.get_object()
+        order = Order.objects.select_for_update().get(pk=order.pk)
+        if order.status != Order.Status.OPEN:
+            return Response({'detail': 'Solo se pueden enviar a cocina pedidos abiertos.'}, status=400)
 
         order.status = Order.Status.SENT
 
@@ -387,6 +441,8 @@ class OrderViewSet(viewsets.ModelViewSet):
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
+
+    http_method_names = ['get', 'post', 'head', 'options']
 
     queryset = (
         Payment.objects

@@ -8,7 +8,7 @@ from sales.models import Order
 
 
 @login_required
-@role_required('admin', 'manager', 'cashier', 'waiter')
+@role_required('admin', 'manager', 'waiter')
 def tables(request):
     zones = scoped_queryset(Zone.objects.all(), request.user, 'branch__restaurant')
     tables_qs = scoped_queryset(DiningTable.objects.all(), request.user, 'zone__branch__restaurant')

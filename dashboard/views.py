@@ -3,9 +3,11 @@ from datetime import datetime, time
 
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F, Sum
-from django.shortcuts import render
+from django.http import HttpResponseForbidden
+from django.shortcuts import redirect, render
 from django.utils import timezone
 
+from accounts.permissions import has_valid_employee_scope, role_home_name
 from inventory.models import Ingredient
 from restaurant.models import DiningTable
 from sales.models import Order, OrderItem, Payment
@@ -45,10 +47,22 @@ def filter_by_day(queryset, field_name, day):
 @login_required
 def dashboard(request):
 
+    user = request.user
+    if not has_valid_employee_scope(user):
+        return HttpResponseForbidden('El perfil no tiene un restaurante y una sucursal válidos asignados.')
+    if not user.is_superuser and user.role not in ['admin', 'manager']:
+        return redirect(role_home_name(user))
+
     today = timezone.localdate()
     week_start = today - timezone.timedelta(days=6)
 
-    user = request.user
+    dashboard_title = 'Administración global'
+    restaurant_plan = None
+    if not user.is_superuser and user.role == 'admin':
+        dashboard_title = 'Panel del propietario'
+        restaurant_plan = user.restaurant.plan
+    elif not user.is_superuser and user.role == 'manager':
+        dashboard_title = 'Panel de gerencia'
 
     # ======================
     # SUPERUSER
@@ -385,6 +399,8 @@ def dashboard(request):
     }
 
     context = {
+        'dashboard_title': dashboard_title,
+        'restaurant_plan': restaurant_plan,
         'sales_today': total_sales,
         'open_orders': open_orders,
         'occupied_tables': occupied_tables,

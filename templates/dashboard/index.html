@@ -1,19 +1,22 @@
 {% extends 'base.html' %}
 {% block title %}Dashboard | Bemba{% endblock %}
-{% block heading %}Dashboard administrativo{% endblock %}
+{% block heading %}{{ dashboard_title }}{% endblock %}
 {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 {{ chart_data|json_script:"dashboard-data" }}
 
 <section class="dashboard-command">
   <div>
-    <span class="eyebrow">Centro de control</span>
-    <h2>Operacion del restaurante en tiempo real</h2>
-    <p>Ventas, cocina, mesas e inventario reunidos en una vista compacta para decidir rapido durante el servicio.</p>
+    <span class="eyebrow">{% if request.user.is_superuser %}Sistema{% elif request.user.role == 'admin' %}Suscripción{% else %}Sucursal{% endif %}</span>
+    <h2>{% if request.user.is_superuser %}Administración global de Bemba POS{% elif request.user.role == 'admin' %}{{ request.user.restaurant.business_name }}{% else %}Operación de sucursal{% endif %}</h2>
+    <p>{% if request.user.is_superuser %}Control global de restaurantes, usuarios y actividad del sistema.{% elif request.user.role == 'admin' %}Gestiona tu suscripción y la operación de tu restaurante.{% else %}Resumen operativo de tu sucursal y su equipo.{% endif %}</p>
+    {% if restaurant_plan %}<p class="mb-0"><strong>Plan:</strong> {{ restaurant_plan.name }} · <strong>Estado:</strong> {{ request.user.restaurant.get_status_display }}</p>{% endif %}
   </div>
   <div class="command-actions">
-    <a href="{% url 'pos' %}" class="btn btn-primary">Nueva venta</a>
+    {% if request.user.is_superuser or request.user.role == 'admin' or request.user.role == 'manager' %}
+    <a href="{% url 'pos' %}" class="btn btn-primary">Punto de venta</a>
     <a href="{% url 'reports' %}" class="btn btn-outline-dark">Ver reportes</a>
+    {% endif %}
   </div>
 </section>
 
@@ -186,14 +189,16 @@
     </div>
   </div>
   <div class="quick-grid">
-    <a href="{% url 'pos' %}"><span>POS</span><strong>Nueva venta</strong></a>
+    {% if request.user.is_superuser or request.user.role == 'admin' or request.user.role == 'manager' %}
+    <a href="{% url 'pos' %}"><span>POS</span><strong>Punto de venta</strong></a>
     <a href="{% url 'tables' %}"><span>MES</span><strong>Mesas</strong></a>
     <a href="{% url 'kitchen' %}"><span>COC</span><strong>Cocina</strong></a>
     <a href="{% url 'inventory' %}"><span>INV</span><strong>Inventario</strong></a>
     <a href="{% url 'inventory_suppliers' %}"><span>PRO</span><strong>Proveedores</strong></a>
     <a href="{% url 'reports' %}"><span>REP</span><strong>Reportes</strong></a>
     <a href="{% url 'staff_list' %}"><span>EMP</span><strong>Empleados</strong></a>
-    {% if request.user.is_staff %}
+    {% endif %}
+    {% if request.user.is_superuser %}
     <a href="/admin/"><span>ADM</span><strong>Admin</strong></a>
     {% endif %}
   </div>

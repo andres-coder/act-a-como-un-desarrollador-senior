@@ -1,7 +1,9 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.utils import timezone
 
 
 class Order(models.Model):
@@ -26,6 +28,7 @@ class Order(models.Model):
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(blank=True, null=True)
+    inventory_consumed_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -40,21 +43,53 @@ class Order(models.Model):
 
     @transaction.atomic
     def consume_inventory(self):
-        from inventory.models import StockMovement
+        from inventory.models import Ingredient, StockAlert, StockMovement
 
-        for item in self.items.select_related('menu_item').prefetch_related('menu_item__recipe'):
+        order = Order.objects.select_for_update().get(pk=self.pk)
+        if order.inventory_consumed_at:
+            return False
+
+        low_stock_ingredients = []
+        items = order.items.select_related('menu_item').prefetch_related('menu_item__recipe')
+        for item in items:
             for recipe_item in item.menu_item.recipe.all():
-                ingredient = recipe_item.ingredient
+                ingredient = Ingredient.objects.select_for_update().get(pk=recipe_item.ingredient_id)
                 quantity = recipe_item.quantity * item.quantity
+                if ingredient.current_stock < quantity:
+                    raise ValidationError(
+                        f'{ingredient.name}: stock insuficiente para completar el pedido.'
+                    )
                 ingredient.current_stock -= quantity
                 ingredient.save(update_fields=['current_stock'])
                 StockMovement.objects.create(
+                    restaurant=order.restaurant or ingredient.restaurant,
                     ingredient=ingredient,
                     movement_type=StockMovement.Type.SALE,
                     quantity=quantity,
-                    note=f'Consumo automático pedido #{self.id}',
-                    created_by=self.waiter,
+                    note=f'Consumo automático pedido #{order.id}',
+                    created_by=order.waiter,
                 )
+                if ingredient.current_stock <= ingredient.min_stock:
+                    low_stock_ingredients.append(ingredient)
+
+        order.inventory_consumed_at = timezone.now()
+        order.save(update_fields=['inventory_consumed_at'])
+        self.inventory_consumed_at = order.inventory_consumed_at
+
+        for ingredient in low_stock_ingredients:
+            StockAlert.objects.get_or_create(
+                restaurant=ingredient.restaurant,
+                ingredient=ingredient,
+                resolved=False,
+                defaults={
+                    'message': (
+                        f'Stock bajo: {ingredient.current_stock} {ingredient.unit} '
+                        f'(mínimo: {ingredient.min_stock})'
+                    ),
+                    'created_by': order.waiter,
+                },
+            )
+        return True
 
     def __str__(self):
         return f'Pedido #{self.pk}'

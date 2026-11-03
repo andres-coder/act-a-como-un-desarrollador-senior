@@ -30,7 +30,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-3. Crear base de datos MySQL:
+3. Para desarrollo local se usa SQLite y no hace falta crear MySQL. En el entorno de despliegue, crea la base MySQL y configura sus credenciales en `.env`:
 
 ```powershell
 mysql -u root -p < database.sql
@@ -42,23 +42,63 @@ mysql -u root -p < database.sql
 copy .env.example .env
 ```
 
-5. Ejecutar migraciones:
+5. Ejecutar migraciones locales:
 
 ```powershell
-python manage.py migrate
+python manage.py migrate --settings bemba.settings_dev
 ```
 
-6. Crear superusuario:
+6. Crear superusuario local:
 
 ```powershell
-python manage.py createsuperuser
+python manage.py createsuperuser --settings bemba.settings_dev
 ```
 
-7. Iniciar servidor:
+7. Iniciar servidor local con la configuración de desarrollo (SQLite y HTTP):
 
 ```powershell
-python manage.py runserver
+python manage.py runserver --settings bemba.settings_dev
 ```
+
+La configuración predeterminada (`bemba.settings`) es para despliegue detrás de HTTPS: requiere `DJANGO_SECRET_KEY`, `DEBUG=False`, HTTPS y cookies seguras. No uses `.env.example` como secreto de producción; genera una clave privada y configura los hosts y la base de datos del entorno.
+
+Para desplegar, usa `bemba.settings` en todos los comandos de administración y el servidor WSGI/ASGI, con MySQL, una clave secreta aleatoria, hosts reales y HTTPS configurados.
+
+## Pruebas y revisión de despliegue
+
+```powershell
+python manage.py test --settings bemba.settings_test
+python manage.py check --deploy
+```
+
+`settings_test` usa SQLite en memoria para que la suite no modifique la base local. Antes de desplegar, configura las variables de entorno reales y ejecuta `check --deploy` en el mismo entorno de producción.
+
+Para probar perfiles manualmente en la base SQLite de desarrollo, aplica migraciones con `bemba.settings_dev` y ejecuta:
+
+```powershell
+python manage.py create_demo_profiles --settings bemba.settings_dev
+```
+
+El comando crea un propietario de restaurante, gerente, cajero, mesero y cocinero de prueba, además de datos demo para cocina/caja. No borra usuarios existentes ni crea otro superadministrador. La contraseña local predeterminada es `BembaDemo2026!`; puedes cambiarla mediante `BEMBA_DEMO_PASSWORD` antes de ejecutar el comando. No uses estas cuentas en producción.
+
+| Perfil | Área inicial y alcance |
+| --- | --- |
+| Superadministrador | Panel global de Django y todos los restaurantes |
+| Propietario (`admin`) | Panel del restaurante y su plan/suscripción |
+| Gerente | Panel y datos de su sucursal; administra personal operativo |
+| Cajero | Lista de pedidos listos para cobrar en su sucursal |
+| Mesero | Mesas y POS para crear/enviar pedidos |
+| Cocina (`chef`) | Comandas de su sucursal |
+
+| Requisitos | Evidencia automatizada |
+| --- | --- |
+| RF-01, RF-02, RF-03, RF-15, RNF-01 | Token JWT, API protegida y restricción por rol (`accounts/tests.py`) |
+| RF-05, RF-06, RNF-07 | Rechazo de mesas de otro restaurante, pago atómico e inventario sin movimientos duplicados (`sales/tests.py`) |
+| RF-07, RF-08 | Cambio de estado de pedido y comanda por cocina (`kitchen/tests.py`) |
+| RF-09, RF-10, RF-11, RF-12 | Monto exacto, estado cobrable, cierre, cambio de mesa y reversión si falta inventario (`sales/tests.py`) |
+| RF-14, RNF-06 | Reporte limitado al restaurante y generación de PDF (`reports/tests.py`) |
+
+RF-04 y RF-13 aún requieren casos específicos de administración de mesas e inventario. RNF-02 requiere ejecutar las migraciones y pruebas de integración contra una instancia MySQL del entorno destino; la suite local usa SQLite en memoria.
 
 ## URLs principales
 
@@ -91,7 +131,6 @@ El proyecto está separado por dominios:
 
 ## Próximos pasos recomendados
 
-- Añadir pruebas automatizadas de flujo POS completo.
 - Crear formularios CRUD HTML completos además de la API.
 - Incorporar multi-tenant real para SaaS por restaurante/sucursal.
 - Agregar impresión térmica ESC/POS.

@@ -55,7 +55,7 @@
     <div class="panel-title">Pedidos abiertos</div>
     <div class="open-orders">
       {% for order in open_orders %}
-      <a href="{% url 'checkout' order.id %}">
+      <a href="{% if request.user.role == 'waiter' %}{% url 'ticket' order.id %}{% else %}{% url 'checkout' order.id %}{% endif %}">
         <span>#{{ order.id }} - Mesa {{ order.table.number }}</span>
         <strong>${{ order.total }}</strong>
       </a>

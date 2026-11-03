@@ -31,6 +31,18 @@
       </div>
     </div>
 
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <label class="form-label">Sucursal</label>
+        <select class="form-select" name="branch" required {% if request.user.role == 'manager' %}disabled{% endif %}>
+          {% for branch in branches %}
+            <option value="{{ branch.id }}" {% if selected_branch_id == branch.id %}selected{% endif %}>{{ branch.name }}</option>
+          {% endfor %}
+        </select>
+        {% if request.user.role == 'manager' %}<input type="hidden" name="branch" value="{{ request.user.branch_id }}">{% endif %}
+      </div>
+    </div>
+
     {% if not is_edit %}
     <div class="row mb-3">
       <div class="col-md-6">
@@ -81,7 +93,7 @@
           <strong>Mesero:</strong> crea órdenes<br>
           <strong>Cajero:</strong> procesa pagos<br>
           <strong>Cocina:</strong> ve pedidos<br>
-          <strong>Gerente:</strong> acceso completo
+          <strong>Gerente:</strong> gestiona la operación de su sucursal
         </small>
       </div>
       {% if is_edit %}

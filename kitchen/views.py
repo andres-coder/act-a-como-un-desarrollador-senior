@@ -1,4 +1,5 @@
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.views.decorators.http import require_POST
@@ -6,6 +7,7 @@ from django.views.decorators.http import require_POST
 from accounts.permissions import role_required
 from kitchen.models import KitchenTicket
 from restaurant.tenancy import scoped_queryset
+from sales.models import Order
 
 
 @login_required
@@ -22,6 +24,7 @@ def kitchen_board(request):
 @login_required
 @role_required('admin', 'manager', 'chef')
 @require_POST
+@transaction.atomic
 def update_ticket_status(request, order_id):
     new_status = request.POST.get('status')
 
@@ -41,7 +44,7 @@ def update_ticket_status(request, order_id):
         order_id=order_id
     )
 
-    order = ticket.order
+    order = Order.objects.select_for_update().get(pk=ticket.order_id)
 
     transitions = {
         'sent': 'preparing',
@@ -56,6 +59,8 @@ def update_ticket_status(request, order_id):
 
     order.status = new_status
     order.save(update_fields=['status'])
+    ticket.status = new_status
+    ticket.save(update_fields=['status'])
 
     return JsonResponse({
         'ok': True,

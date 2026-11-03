@@ -16,6 +16,7 @@ from inventory.models import (
     PurchaseOrder,
     PurchaseOrderItem,
 )
+from restaurant.models import Branch
 from restaurant.tenancy import scoped_queryset
 
 
@@ -53,7 +54,7 @@ def alerts(request):
 def alert_action(request):
     action = request.POST.get('action')
     alert_id = request.POST.get('alert_id')
-    alert = get_object_or_404(StockAlert, pk=alert_id)
+    alert = get_object_or_404(scoped_queryset(StockAlert.objects.all(), request.user), pk=alert_id)
 
     if action == 'resolve':
         alert.resolved = True
@@ -64,12 +65,18 @@ def alert_action(request):
         quantity = request.POST.get('quantity')
         item_quantity = float(quantity) if quantity else 0
         supplier_id = request.POST.get('supplier_id')
-        supplier = get_object_or_404(Supplier, pk=supplier_id)
+        supplier = get_object_or_404(scoped_queryset(Supplier.objects.all(), request.user), pk=supplier_id)
 
         po = PurchaseOrder.objects.create(
             restaurant=alert.restaurant,
             supplier=supplier,
-            branch=alert.ingredient.restaurant.branch_set.filter(restaurant=alert.restaurant).first() if alert.ingredient.restaurant else None,
+            branch=(
+                request.user.branch
+                if request.user.role == 'manager'
+                else alert.ingredient.restaurant.branch_set.filter(restaurant=alert.restaurant).first()
+                if alert.ingredient.restaurant
+                else None
+            ),
             created_by=request.user,
         )
         PurchaseOrderItem.objects.create(
@@ -114,6 +121,8 @@ def purchase_orders(request):
 @role_required('admin', 'manager')
 def purchase_order_create(request):
     form = PurchaseOrderForm(request.POST or None)
+    form.fields['supplier'].queryset = scoped_queryset(Supplier.objects.all(), request.user)
+    form.fields['branch'].queryset = scoped_queryset(Branch.objects.all(), request.user)
     ingredients = scoped_queryset(Ingredient.objects.all(), request.user)
     if request.method == 'POST' and form.is_valid():
         supplier = form.cleaned_data['supplier']
@@ -122,7 +131,7 @@ def purchase_order_create(request):
         ingredient_id = request.POST.get('ingredient')
         quantity = request.POST.get('quantity')
         unit_cost = request.POST.get('unit_cost')
-        ingredient = get_object_or_404(Ingredient, pk=ingredient_id)
+        ingredient = get_object_or_404(ingredients, pk=ingredient_id)
 
         po = PurchaseOrder.objects.create(
             restaurant=supplier.restaurant or getattr(request.user, 'restaurant', None),

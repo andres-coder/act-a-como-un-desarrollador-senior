@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Pedidos para cobrar | Bemba{% endblock %}
+{% block heading %}Caja{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="panel-heading">
+    <div>
+      <span class="eyebrow">Pedidos listos</span>
+      <h2>Selecciona un pedido para cobrar</h2>
+    </div>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead><tr><th>Pedido</th><th>Mesa</th><th>Mesero</th><th>Estado</th><th>Total</th><th></th></tr></thead>
+      <tbody>
+        {% for order in orders %}
+        <tr>
+          <td>#{{ order.id }}</td>
+          <td>Mesa {{ order.table.number }}</td>
+          <td>{{ order.waiter.get_full_name|default:order.waiter.username }}</td>
+          <td>{{ order.get_status_display }}</td>
+          <td>${{ order.total|floatformat:0 }}</td>
+          <td><a class="btn btn-primary btn-sm" href="{% url 'checkout' order.id %}">Cobrar</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-muted">No hay pedidos listos para cobrar en tu sucursal.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -48,6 +48,7 @@
       <button class="btn btn-dark w-100 mt-3" type="submit">Confirmar pago</button>
     </form>
 
+    {% if request.user.is_superuser or request.user.role == 'admin' or request.user.role == 'manager' %}
     <div class="mt-4">
       <label class="form-label">Transferir a otra mesa</label>
       <select id="transfer-table-select" class="form-select mb-3">
@@ -59,6 +60,7 @@
       </select>
       <button id="transfer-table" class="btn btn-outline-secondary w-100" type="button">Transferir mesa</button>
     </div>
+    {% endif %}
     {% endif %}
   </aside>
 </section>

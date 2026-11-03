@@ -9,8 +9,16 @@ from sales.models import Order, Payment
 
 
 @login_required
-@role_required('admin', 'manager', 'cashier', 'waiter')
+@role_required('admin', 'manager', 'waiter', 'cashier')
 def pos(request):
+    if request.user.role == 'cashier':
+        orders = scoped_queryset(Order.objects.exclude(
+            status__in=[Order.Status.PAID, Order.Status.CANCELLED]
+        ), request.user).filter(
+            status__in=[Order.Status.READY, Order.Status.SERVED]
+        ).select_related('table', 'waiter').order_by('-created_at')
+        return render(request, 'sales/cashier_orders.html', {'orders': orders})
+
     tables = scoped_queryset(DiningTable.objects.filter(is_active=True), request.user, 'zone__branch__restaurant')
     categories = scoped_queryset(Category.objects.filter(is_active=True), request.user)
     items = scoped_queryset(MenuItem.objects.filter(is_available=True), request.user)
@@ -32,7 +40,7 @@ def ticket(request, pk):
 
 
 @login_required
-@role_required('admin', 'manager', 'cashier', 'waiter')
+@role_required('admin', 'manager', 'cashier')
 def checkout(request, pk):
     orders = scoped_queryset(Order.objects.select_related('table', 'waiter').prefetch_related('items__menu_item'), request.user)
     order = get_object_or_404(orders, pk=pk)
